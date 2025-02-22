@@ -1,1 +1,509 @@
+import pandas as pd
+import numpy as np
+import re  
+
+names_file = "communities.names"
+column_names = []
+df = pd.read_csv("communities.data", names=column_names, header=None, na_values="?")
+
+df.head()
+
+names_file = "communities.names"
+
+with open(names_file, "r") as f:
+    lines = f.readlines()
+
+print(f"📌 `communities.names` total: {len(lines)} ")
+
+print("\n===== `communities.names` content =====")
+for i, line in enumerate(lines):
+    print(f"{i+1}: {line.strip()}")  
+import re
+
+names_file = "communities.names"
+column_names = []
+
+with open(names_file, "r") as f:
+    for line in f:
+        line = line.strip()
+
+       
+        if line.startswith("@attribute"):
+            column_name = line.split()[1].strip()  
+
+            column_name = re.sub(r"[^a-zA-Z0-9_]", "", column_name)
+            column_name = column_name.replace("-", "").replace(" ", "_")
+
+            column_names.append(column_name)
+
+
+
+print("top 10 column names:", column_names[:10])
+df_temp = pd.read_csv("communities.data", header=None, na_values="?")
+print(f"📌 `communities.data` 文件实际有 {df_temp.shape[1]} 列")
+
+df = pd.read_csv("communities.data", names=column_names, header=None, na_values="?")
+print(df.select_dtypes(include=['object']).columns)
+df['communityname'] = df['communityname'].astype(str)
+df.head()
+missing_values = df.isnull().sum()
+print(missing_values[missing_values > 0])
+
+print(df["ViolentCrimesPerPop"].describe())
+print(df["ViolentCrimesPerPop"].isnull().sum())
+print(df["ViolentCrimesPerPop"].unique())
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+sns.histplot(df["ViolentCrimesPerPop"].dropna(), kde=True, bins=30)
+plt.show()
+
+import matplotlib.pyplot as plt
+
+df.isnull().sum().plot(kind="bar", figsize=(12, 6))
+plt.title("NaN count per column")
+plt.show()
+threshold = 1000  # 设置阈值
+cols_to_drop = df.isnull().sum()[df.isnull().sum() > threshold].index  # 获取需要删除的列名
+df_cleaned = df.drop(columns=cols_to_drop)  # 删除这些列
+
+print(f"delect {len(cols_to_drop)} ，rest of column {df_cleaned.shape[1]} ")
+num_rows_with_nan = df.isnull().any(axis=1).sum()
+print(f"包含缺失值的行数: {num_rows_with_nan}")
+num_empty_rows = df.isnull().all(axis=1).sum()
+print(f"完全空的行数: {num_empty_rows}")
+df["missing_count"] = df.isnull().sum(axis=1)
+df_sorted = df.sort_values("missing_count", ascending=False)
+print(df_sorted[["missing_count"]].head(10))  # 查看前10行
+df["crime_category"] = pd.qcut(df["ViolentCrimesPerPop"], q=3, labels=["Low", "Medium", "High"])
+
+# 计算每行（社区）的缺失率
+df["missing_ratio"] = df["missing_count"] / df.shape[1]  # 除以总特征数
+
+# 定义缺失率区间（10%, 20%, ..., 90%）
+bins = np.arange(0, 1.1, 0.1)  # [0%, 10%, ..., 100%]
+df["missing_bin"] = pd.cut(df["missing_ratio"], bins, labels=[f"{int(i*100)}%" for i in bins[:-1]])
+
+# 查看不同缺失率区间的社区数量
+print(df["missing_bin"].value_counts().sort_index())
+
+# 按区间计算目标变量均值
+grouped = df.groupby("missing_bin")["ViolentCrimesPerPop"].mean()
+print(grouped)
+
+crime_missing = df.groupby(["crime_category", "missing_bin"]).size().unstack()
+print(crime_missing)
+crime_missing.plot(kind="bar", stacked=True, figsize=(10,6))
+
+missing_values1 = df_cleaned.isnull().sum()
+missing_values1 = missing_values[missing_values > 0]  # 只显示有缺失值的列
+print(missing_values1)
+df_cleaned.fillna(df_cleaned.select_dtypes(include=['number']).median(), inplace=True)
+df_cleaned.fillna(df_cleaned.select_dtypes(include=['object']).mode().iloc[0], inplace=True)
+df_cleaned.info()
+print(df_cleaned.isnull().sum().sum())  # 统计整个 DataFrame 还有多少个 NaN
+
+import statsmodels.api as sm
+import pandas as pd
+
+print(df_cleaned.dtypes[df_cleaned.dtypes == 'object'])
+X = df_cleaned.drop(columns=["ViolentCrimesPerPop", "communityname"])
+y = df_cleaned["ViolentCrimesPerPop"]
+
+X = sm.add_constant(X)  # 添加截距项
+model = sm.OLS(y, X).fit()
+
+# 获取 p-values
+p_values = model.pvalues
+
+# 选出前 10 个最重要的特征
+top_10_features = p_values.sort_values().iloc[1:11]  # 跳过 const
+print(top_10_features)
+
+import statsmodels.api as sm
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+# 计算 R² 和 Adjusted R²
+r2 = model.rsquared
+adj_r2 = model.rsquared_adj
+print(f"R²: {r2:.4f}, Adjusted R²: {adj_r2:.4f}")
+
+# 计算 VIF（多重共线性）
+vif_data = pd.DataFrame()
+vif_data["Feature"] = X.columns
+vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
+print(vif_data)
+
+# 显著性检验（F-statistic）
+print(f"F-statistic: {model.fvalue:.4f}, p-value: {model.f_pvalue:.4f}")
+
+# 检查残差分布
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+sns.histplot(model.resid, kde=True)
+plt.title("Residual Distribution")
+plt.show()
+df_cleaned = df_cleaned.drop(columns=["communityname"])
+
+from itertools import combinations
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+
+# 1. 预处理数据
+X = df_cleaned.drop(columns=["ViolentCrimesPerPop", "population", "householdsize"])
+y = df_cleaned["ViolentCrimesPerPop"]
+!pip install mlxtend
+
+from mlxtend.feature_selection import SequentialFeatureSelector as SFS
+from sklearn.linear_model import LinearRegression
+
+# 定义线性回归模型
+model = LinearRegression()
+
+# 前向选择（逐步添加特征）
+sfs = SFS(model,
+          forward=True,  # True: 逐步增加特征，False: 逐步剔除特征
+          floating=False,
+          scoring='r2',
+          cv=5)  # 交叉验证次数
+
+# 运行特征选择
+sfs.fit(X, y)
+
+# 输出最佳特征
+best_features = list(sfs.k_feature_names_)
+print(f"Best Subset Features: {best_features}")
+
+pip install --upgrade scikit-learn
+
+from sklearn.feature_selection import RFE
+from sklearn.linear_model import LinearRegression
+
+# 线性回归模型
+model = LinearRegression()
+
+# 设定 RFE 选择 10 个最佳特征
+selector = RFE(model, n_features_to_select=10)
+selector.fit(X, y)
+
+# 获取最佳特征
+selected_features = X.columns[selector.support_]
+print(f"RFE Selected Features: {list(selected_features)}")
+
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.linear_model import LinearRegression
+
+# Best Subset Selection 模型
+X_best = X[best_features]  # Best Subset 选出的特征
+model_best = LinearRegression().fit(X_best, y)
+y_pred_best = model_best.predict(X_best)
+
+# RFE 模型
+X_rfe = X[selected_features]  # RFE 选出的特征
+model_rfe = LinearRegression().fit(X_rfe, y)
+y_pred_rfe = model_rfe.predict(X_rfe)
+
+# 计算 R² 和 MSE
+r2_best = r2_score(y, y_pred_best)
+mse_best = mean_squared_error(y, y_pred_best)
+
+r2_rfe = r2_score(y, y_pred_rfe)
+mse_rfe = mean_squared_error(y, y_pred_rfe)
+
+print(f"Best Subset - R²: {r2_best:.4f}, MSE: {mse_best:.4f}")
+print(f"RFE - R²: {r2_rfe:.4f}, MSE: {mse_rfe:.4f}")
+
+from sklearn.linear_model import LassoCV
+from sklearn.preprocessing import StandardScaler
+
+# 数据标准化
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 使用交叉验证选择最佳 alpha
+lasso = LassoCV(cv=5, max_iter=5000).fit(X_scaled, y)
+
+
+# 选择非零系数对应的特征
+lasso_features = X.columns[lasso.coef_ != 0]
+print(f"Lasso Selected Features: {list(lasso_features)}")
+
+# 计算 R² 和 MSE
+y_pred_lasso = lasso.predict(X_scaled)
+r2_lasso = r2_score(y, y_pred_lasso)
+mse_lasso = mean_squared_error(y, y_pred_lasso)
+
+print(f"Lasso - R²: {r2_lasso:.4f}, MSE: {mse_lasso:.4f}")
+
+from sklearn.linear_model import ElasticNetCV
+
+# 使用交叉验证选择最佳 alpha 和 l1_ratio
+elastic_net = ElasticNetCV(cv=5, l1_ratio=[0.1, 0.5, 0.9]).fit(X_scaled, y)
+
+# 选择非零系数对应的特征
+elastic_net_features = X.columns[elastic_net.coef_ != 0]
+print(f"Elastic Net Selected Features: {list(elastic_net_features)}")
+
+# 计算 R² 和 MSE
+y_pred_elastic = elastic_net.predict(X_scaled)
+r2_elastic = r2_score(y, y_pred_elastic)
+mse_elastic = mean_squared_error(y, y_pred_elastic)
+
+print(f"Elastic Net - R²: {r2_elastic:.4f}, MSE: {mse_elastic:.4f}")
+
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+from sklearn.linear_model import ElasticNet
+model_elastic = ElasticNet(alpha=0.1, l1_ratio=0.5, max_iter=5000)
+model_elastic.fit(X_scaled, y)
+# 获取非零系数的特征（选中的特征）
+elastic_features = X.columns[model_elastic.coef_ != 0]
+
+# 计算 R² 和 MSE
+y_pred_elastic = model_elastic.predict(X_scaled)
+r2_elastic = r2_score(y, y_pred_elastic)
+mse_elastic = mean_squared_error(y, y_pred_elastic)
+
+# 输出结果
+print(f"Elastic Net Selected Features: {list(elastic_features)}")
+print(f"Elastic Net – R²: {r2_elastic:.4f}, MSE: {mse_elastic:.4f}")
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import Lasso, ElasticNet, Ridge
+from sklearn.preprocessing import StandardScaler
+
+# 数据标准化
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 定义一系列的 alpha 值（正则化强度）
+alphas = np.logspace(-4, 1, 50)  
+
+# ========== Lasso Path ==========
+lasso_coefs = []
+for alpha in alphas:
+    model = Lasso(alpha=alpha, max_iter=5000)
+    model.fit(X_scaled, y)
+    lasso_coefs.append(model.coef_)
+
+lasso_coefs = np.array(lasso_coefs)
+
+plt.figure(figsize=(8, 5))
+plt.plot(alphas, lasso_coefs)
+plt.xscale("log")
+plt.xlabel("Alpha")
+plt.ylabel("Coefficients")
+plt.title("Lasso Regularization Path")
+plt.grid(True)
+plt.show()
+
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import Lasso, ElasticNet, Ridge
+from sklearn.preprocessing import StandardScaler
+
+# 数据标准化
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 定义一系列的 alpha 值（正则化强度）
+alphas = np.logspace(-4, 1, 50)  
+
+# ========== Elastic Net Path (Two alphas) ==========
+elastic_coefs_1 = []
+elastic_coefs_2 = []
+alpha1, alpha2 = 0.01, 0.1  # 选取两个不同的 alpha
+
+for alpha in alphas:
+    model1 = ElasticNet(alpha=alpha1, l1_ratio=0.5, max_iter=5000)
+    model2 = ElasticNet(alpha=alpha2, l1_ratio=0.5, max_iter=5000)
+    
+    model1.fit(X_scaled, y)
+    model2.fit(X_scaled, y)
+    
+    elastic_coefs_1.append(model1.coef_)
+    elastic_coefs_2.append(model2.coef_)
+
+elastic_coefs_1 = np.array(elastic_coefs_1)
+elastic_coefs_2 = np.array(elastic_coefs_2)
+
+plt.figure(figsize=(10, 6))  # 增大图的尺寸
+for i in range(min(10, X.shape[1])):  # 只绘制前10个特征，避免太多图例
+    plt.plot(alphas, elastic_coefs_1[:, i], label=f'Alpha={alpha1}, Feature {i}')
+    plt.plot(alphas, elastic_coefs_2[:, i], linestyle='dashed', label=f'Alpha={alpha2}, Feature {i}')
+
+plt.xscale("log")
+plt.xlabel("Alpha")
+plt.ylabel("Coefficients")
+plt.title("Elastic Net Regularization Path")
+
+# **调整图例**
+plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=9, frameon=True)  # 图例放到图外
+plt.grid(True)
+
+# **调整布局，防止图例超出**
+plt.tight_layout(rect=[0, 0, 0.75, 1])  # 让图例在右侧不超出边界
+
+plt.show()
+
+# ========== Ridge Path ==========
+ridge_coefs = []
+for alpha in alphas:
+    model = Ridge(alpha=alpha)
+    model.fit(X_scaled, y)
+    ridge_coefs.append(model.coef_)
+
+ridge_coefs = np.array(ridge_coefs)
+
+plt.figure(figsize=(8, 5))
+plt.plot(alphas, ridge_coefs)
+plt.xscale("log")
+plt.xlabel("Alpha")
+plt.ylabel("Coefficients")
+plt.title("Ridge Regularization Path")
+plt.grid(True)
+plt.show()
+
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.metrics import mean_squared_error
+from sklearn.feature_selection import RFE
+from mlxtend.feature_selection import SequentialFeatureSelector as SFS
+
+# 加载数据
+X = df_cleaned.drop(columns=["ViolentCrimesPerPop"])
+y = df_cleaned["ViolentCrimesPerPop"]
+
+# 设置重复实验次数
+n_iterations = 10
+results = {"Least Squares": [], "Ridge": [], "Best Subset": [], "Stepwise RFE": [], "Lasso": [], "Elastic Net": []}
+
+# 运行10次实验
+for _ in range(n_iterations):
+    # 拆分数据集 (60% train, 20% validation, 20% test)
+    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.4, random_state=None)
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=None)
+
+    #### 1. 最小二乘法 OLS ####
+    model_ols = LinearRegression().fit(X_train, y_train)
+    y_pred_ols = model_ols.predict(X_test)
+    results["Least Squares"].append(mean_squared_error(y_test, y_pred_ols))
+
+    #### 2. 岭回归 Ridge (超参数调优) ####
+    best_alpha = min([0.01, 0.1, 1, 10, 100], key=lambda a: mean_squared_error(y_val, Ridge(alpha=a).fit(X_train, y_train).predict(X_val)))
+    model_ridge = Ridge(alpha=best_alpha).fit(X_train, y_train)
+    results["Ridge"].append(mean_squared_error(y_test, model_ridge.predict(X_test)))
+
+    #### 3. 最优子集选择 Best Subsets ####
+    sfs = SFS(LinearRegression(), k_features=10, forward=True, floating=False, scoring='neg_mean_squared_error', cv=5)
+    sfs.fit(X_train, y_train)
+    selected_features = list(sfs.k_feature_names_)
+    model_best_subset = LinearRegression().fit(X_train[selected_features], y_train)
+    results["Best Subset"].append(mean_squared_error(y_test, model_best_subset.predict(X_test[selected_features])))
+
+    #### 4. 逐步回归 (RFE) ####
+    selector = RFE(LinearRegression(), n_features_to_select=10)
+    selector.fit(X_train, y_train)
+    X_train_rfe, X_test_rfe = X_train.iloc[:, selector.support_], X_test.iloc[:, selector.support_]
+    model_rfe = LinearRegression().fit(X_train_rfe, y_train)
+    results["Stepwise RFE"].append(mean_squared_error(y_test, model_rfe.predict(X_test_rfe)))
+
+    #### 5. Lasso 回归 (超参数调优) ####
+    best_alpha = min([0.01, 0.1, 1, 10], key=lambda a: mean_squared_error(y_val, Lasso(alpha=a).fit(X_train, y_train).predict(X_val)))
+    model_lasso = Lasso(alpha=best_alpha).fit(X_train, y_train)
+    results["Lasso"].append(mean_squared_error(y_test, model_lasso.predict(X_test)))
+
+    #### 6. Elastic Net (超参数调优) ####
+    best_alpha = min([0.01, 0.1, 1, 10], key=lambda a: mean_squared_error(y_val, ElasticNet(alpha=a, l1_ratio=0.5).fit(X_train, y_train).predict(X_val)))
+    model_elastic = ElasticNet(alpha=best_alpha, l1_ratio=0.5).fit(X_train, y_train)
+    results["Elastic Net"].append(mean_squared_error(y_test, model_elastic.predict(X_test)))
+
+# 计算10次实验的平均MSE
+avg_results = {method: np.mean(mse_list) for method, mse_list in results.items()}
+
+# 显示结果
+df_results = pd.DataFrame.from_dict(avg_results, orient="index", columns=["Mean Test MSE"])
+print(df_results)
+
+# 绘制柱状图
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10, 5))
+plt.barh(df_results.index, df_results["Mean Test MSE"], color=['blue', 'red', 'green', 'purple', 'orange', 'cyan'])
+plt.xlabel("Mean Test MSE (Lower is better)")
+plt.title("Comparison of Linear Methods for Prediction")
+plt.grid(axis="x", linestyle="--", alpha=0.7)
+plt.show()
+
+import numpy as np
+import statsmodels.api as sm
+from sklearn.linear_model import LinearRegression
+
+# Generate simulated data
+np.random.seed(42)
+X = np.random.rand(100, 2)  # Two features
+y = 3 + 5 * X[:, 0] + 2 * X[:, 1] + np.random.randn(100) * 0.5  # Linear relationship with noise
+
+# Method 1: Standard OLS regression
+X_ols = sm.add_constant(X)  # Add intercept term
+model_ols = sm.OLS(y, X_ols).fit()
+print("Standard OLS coefficients:", model_ols.params)
+
+# Method 2: Centering X and y before regression
+X_centered = X - np.mean(X, axis=0)
+y_centered = y - np.mean(y)
+model_centered = sm.OLS(y_centered, X_centered).fit()
+print("Centered OLS coefficients (excluding intercept):", model_centered.params)
+
+# Method 3: Adding a column of ones to X
+X_augmented = np.column_stack((np.ones(X.shape[0]), X))
+model_augmented = sm.OLS(y, X_augmented).fit()
+print("OLS with added constant column:", model_augmented.params)
+
+# Generate data where p > n
+n, p = 5, 10  # More features than samples
+X_high_dim = np.random.rand(n, p)
+y_high_dim = np.random.rand(n)
+
+# Train OLS regression
+model_high_dim = LinearRegression().fit(X_high_dim, y_high_dim)
+y_pred = model_high_dim.predict(X_high_dim)
+
+# Compute training error
+train_error = np.mean((y_high_dim - y_pred) ** 2)
+print("Training error (p > n):", train_error)
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Generate highly correlated features
+X_corr = np.random.rand(100, 1)
+X_corr = np.hstack([X_corr, X_corr + np.random.normal(0, 0.01, (100, 1))])  # Highly correlated
+y_corr = 3 + 5 * X_corr[:, 0] + 2 * X_corr[:, 1] + np.random.randn(100) * 0.5
+
+# OLS regression
+model_corr = sm.OLS(y_corr, sm.add_constant(X_corr)).fit()
+print("OLS coefficients for correlated variables:", model_corr.params)
+
+# Visualize feature correlation
+sns.heatmap(np.corrcoef(X_corr.T), annot=True, cmap="coolwarm")
+plt.title("Feature Correlation Matrix")
+plt.show()
+
+from sklearn.linear_model import Ridge
+
+ridge_model = Ridge(alpha=10).fit(X_corr, y_corr)
+print("Ridge regression coefficients:", ridge_model.coef_)
+
+from sklearn.linear_model import Lasso
+
+lasso_model = Lasso(alpha=0.1).fit(X_corr, y_corr)
+print("Lasso regression coefficients:", lasso_model.coef_)
+
 
